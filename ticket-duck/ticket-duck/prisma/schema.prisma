@@ -1,0 +1,372 @@
+// ============================================================
+//  Ticket Duck — Prisma Schema
+//  Banco: PostgreSQL
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// Config geral por servidor
+// ------------------------------------------------------------
+model GuildConfig {
+  id                String   @id @default(cuid())
+  guildId           String   @unique
+  logsChannelId     String?
+  transcriptsChannelId String?
+  staffRoleIds      String[] @default([])
+  adminRoleIds      String[] @default([])
+  moderatorRoleIds  String[] @default([])
+  supervisorRoleIds String[] @default([])
+  defaultCooldownMs Int      @default(60000)
+  language          String   @default("pt-BR")
+  premium           Boolean  @default(false)
+  setupCompleted    Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  panels        Panel[]
+  categories    Category[]
+  tickets       Ticket[]
+  staff         Staff[]
+  blacklisted   BlacklistedUser[]
+  settings      Settings[]
+  cooldowns     Cooldown[]
+  userHistories UserHistory[]
+
+  @@map("guild_configs")
+}
+
+// ------------------------------------------------------------
+// Painéis
+// ------------------------------------------------------------
+model Panel {
+  id             String   @id @default(cuid())
+  guildId        String
+  guildConfig    GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  title          String
+  description    String
+  color          String   @default("#5865F2")
+  thumbnailUrl   String?
+  imageUrl       String?
+  footerText     String?
+  footerIconUrl  String?
+
+  channelId      String
+  messageId      String?
+
+  menuPlaceholder String  @default("Selecione uma categoria")
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  categories     Category[]
+
+  @@index([guildId])
+  @@map("panels")
+}
+
+// ------------------------------------------------------------
+// Categorias de ticket
+// ------------------------------------------------------------
+model Category {
+  id                String   @id @default(cuid())
+  guildId           String
+  guildConfig       GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  panelId           String
+  panel             Panel    @relation(fields: [panelId], references: [id], onDelete: Cascade)
+
+  emoji             String?
+  name              String
+  description       String?
+  responsibleRoleId String?
+  discordCategoryId String?
+  initialMessage    String?
+  color             String   @default("#5865F2")
+  priority          TicketPriority @default(MEDIUM)
+
+  formId            String?  @unique
+  form              Form?    @relation(fields: [formId], references: [id])
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tickets           Ticket[]
+
+  @@index([guildId])
+  @@index([panelId])
+  @@map("categories")
+}
+
+// ------------------------------------------------------------
+// Formulários
+// ------------------------------------------------------------
+model Form {
+  id         String     @id @default(cuid())
+  name       String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  questions  Question[]
+  category   Category?
+
+  @@map("forms")
+}
+
+model Question {
+  id           String   @id @default(cuid())
+  formId       String
+  form         Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  label        String
+  style        QuestionStyle @default(SHORT)
+  required     Boolean  @default(true)
+  placeholder  String?
+  minLength    Int?
+  maxLength    Int?
+  order        Int      @default(0)
+
+  answers      TicketAnswer[]
+
+  @@index([formId])
+  @@map("questions")
+}
+
+model TicketAnswer {
+  id          String   @id @default(cuid())
+  ticketId    String
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  questionId  String
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answer      String
+
+  @@index([ticketId])
+  @@map("ticket_answers")
+}
+
+// ------------------------------------------------------------
+// Tickets
+// ------------------------------------------------------------
+model Ticket {
+  id             String       @id @default(cuid())
+  number         Int
+  guildId        String
+  guildConfig    GuildConfig  @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  categoryId     String
+  category       Category     @relation(fields: [categoryId], references: [id])
+
+  channelId      String       @unique
+  openerId       String
+  claimedById    String?
+
+  status         TicketStatus @default(WAITING)
+  priority       TicketPriority @default(MEDIUM)
+
+  callCount      Int          @default(0)
+  lockedAt       DateTime?
+  closedAt       DateTime?
+  closedById     String?
+  closeReason    String?
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  answers        TicketAnswer[]
+  members        TicketMember[]
+  logs           TicketLog[]
+  transcript     Transcript?
+  rating         Rating?
+
+  @@unique([guildId, number])
+  @@index([guildId])
+  @@index([openerId])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketMember {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId    String
+  addedAt   DateTime @default(now())
+
+  @@unique([ticketId, userId])
+  @@map("ticket_members")
+}
+
+// ------------------------------------------------------------
+// Logs de eventos do ticket
+// ------------------------------------------------------------
+model TicketLog {
+  id        String       @id @default(cuid())
+  ticketId  String
+  ticket    Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  type      TicketLogType
+  actorId   String?
+  targetId  String?
+  metadata  Json?
+  createdAt DateTime     @default(now())
+
+  @@index([ticketId])
+  @@map("ticket_logs")
+}
+
+// ------------------------------------------------------------
+// Transcript
+// ------------------------------------------------------------
+model Transcript {
+  id        String   @id @default(cuid())
+  ticketId  String   @unique
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  html      String
+  createdAt DateTime @default(now())
+
+  @@map("transcripts")
+}
+
+// ------------------------------------------------------------
+// Avaliação
+// ------------------------------------------------------------
+model Rating {
+  id        String   @id @default(cuid())
+  ticketId  String   @unique
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@map("ratings")
+}
+
+// ------------------------------------------------------------
+// Staff
+// ------------------------------------------------------------
+model Staff {
+  id          String     @id @default(cuid())
+  guildId     String
+  guildConfig GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  userId      String
+  role        StaffRole  @default(SUPPORT)
+  createdAt   DateTime   @default(now())
+
+  @@unique([guildId, userId])
+  @@map("staff")
+}
+
+// ------------------------------------------------------------
+// Histórico do usuário
+// ------------------------------------------------------------
+model UserHistory {
+  id             String   @id @default(cuid())
+  guildId        String
+  guildConfig    GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  userId         String
+  totalTickets   Int      @default(0)
+  averageRating  Float?
+  lastTicketAt   DateTime?
+  updatedAt      DateTime @updatedAt
+
+  @@unique([guildId, userId])
+  @@map("user_histories")
+}
+
+// ------------------------------------------------------------
+// Blacklist
+// ------------------------------------------------------------
+model BlacklistedUser {
+  id          String   @id @default(cuid())
+  guildId     String
+  guildConfig GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  userId      String
+  reason      String?
+  createdAt   DateTime @default(now())
+
+  @@unique([guildId, userId])
+  @@map("blacklisted_users")
+}
+
+// ------------------------------------------------------------
+// Cooldowns (ex.: chamar membro)
+// ------------------------------------------------------------
+model Cooldown {
+  id          String   @id @default(cuid())
+  guildId     String
+  guildConfig GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  key         String
+  userId      String
+  expiresAt   DateTime
+
+  @@unique([guildId, key, userId])
+  @@map("cooldowns")
+}
+
+// ------------------------------------------------------------
+// Settings genéricos (chave/valor por guild, para configs futuras)
+// ------------------------------------------------------------
+model Settings {
+  id          String   @id @default(cuid())
+  guildId     String
+  guildConfig GuildConfig @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+  key         String
+  value       String
+  updatedAt   DateTime @updatedAt
+
+  @@unique([guildId, key])
+  @@map("settings")
+}
+
+// ------------------------------------------------------------
+// Enums
+// ------------------------------------------------------------
+enum TicketStatus {
+  WAITING
+  IN_PROGRESS
+  WAITING_CLIENT
+  TRANSFERRED
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum StaffRole {
+  ADMIN
+  MODERATOR
+  SUPPORT
+  SUPERVISOR
+}
+
+enum QuestionStyle {
+  SHORT
+  LONG
+}
+
+enum TicketLogType {
+  CREATED
+  CLAIMED
+  MEMBER_CALLED
+  TRANSFERRED
+  RENAMED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  LOCKED
+  UNLOCKED
+  RATED
+  TRANSCRIPT_GENERATED
+  CLOSED
+}

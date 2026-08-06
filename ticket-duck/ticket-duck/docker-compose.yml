@@ -1,0 +1,27 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ticketduck
+      POSTGRES_PASSWORD: ticketduck
+      POSTGRES_DB: ticketduck
+    ports:
+      - '5432:5432'
+    volumes:
+      - ticket_duck_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ticketduck']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ticket_duck_data:
